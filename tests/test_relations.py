@@ -26,7 +26,7 @@ class TestStringRelatedField(APISimpleTestCase):
         assert representation == '<MockObject name=foo, pk=1>'
 
 
-class MockApiSettings(object):
+class MockApiSettings:
     def __init__(self, cutoff, cutoff_text):
         self.HTML_SELECT_CUTOFF = cutoff
         self.HTML_SELECT_CUTOFF_TEXT = cutoff_text
@@ -197,6 +197,36 @@ class TestHyperlinkedRelatedField(APISimpleTestCase):
         msg = excinfo.value.detail[0]
         assert msg == 'Invalid hyperlink - Object does not exist.'
 
+    def test_hyperlinked_related_internal_type_error(self):
+        class Field(serializers.HyperlinkedRelatedField):
+            def get_object(self, incorrect, signature):
+                raise NotImplementedError()
+
+        field = Field(view_name='example', queryset=self.queryset)
+        with pytest.raises(TypeError):
+            field.to_internal_value('http://example.org/example/doesnotexist/')
+
+    def hyperlinked_related_queryset_error(self, exc_type):
+        class QuerySet:
+            def get(self, *args, **kwargs):
+                raise exc_type
+
+        field = serializers.HyperlinkedRelatedField(
+            view_name='example',
+            lookup_field='name',
+            queryset=QuerySet(),
+        )
+        with pytest.raises(serializers.ValidationError) as excinfo:
+            field.to_internal_value('http://example.org/example/doesnotexist/')
+        msg = excinfo.value.detail[0]
+        assert msg == 'Invalid hyperlink - Object does not exist.'
+
+    def test_hyperlinked_related_queryset_type_error(self):
+        self.hyperlinked_related_queryset_error(TypeError)
+
+    def test_hyperlinked_related_queryset_value_error(self):
+        self.hyperlinked_related_queryset_error(ValueError)
+
 
 class TestHyperlinkedIdentityField(APISimpleTestCase):
     def setUp(self):
@@ -221,7 +251,7 @@ class TestHyperlinkedIdentityField(APISimpleTestCase):
     def test_improperly_configured(self):
         """
         If a matching view cannot be reversed with the given instance,
-        the the user has misconfigured something, as the URL conf and the
+        the user has misconfigured something, as the URL conf and the
         hyperlinked field do not match.
         """
         self.field.reverse = fail_reverse
